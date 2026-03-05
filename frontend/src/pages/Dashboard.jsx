@@ -17,7 +17,7 @@ import {
   ChevronRight
 } from "lucide-react";
 
-const API = "http://localhost:5000";
+const API = "https://heek-v3.onrender.com";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({});
@@ -51,17 +51,43 @@ export default function Dashboard() {
   };
 
   const fetchData = async () => {
-    try {
-      const [s, l] = await Promise.all([
-        fetch(API + "/stats").then(r => r.json()),
-        fetch(API + "/logs").then(r => r.json())
-      ]);
-      setStats(s);
-      setLogs(l);
-    } catch (error) {
-      console.error("Error fetching data:", error);
+  try {
+    const response = await fetch(API + "/stats");
+    
+    // Check if response is OK
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-  };
+    
+    // Check content type
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error("Received non-JSON response:", text.substring(0, 200));
+      throw new Error("Received non-JSON response from server");
+    }
+    
+    const data = await response.json();
+    setStats(data);
+    
+    // Similarly for logs
+    const logsResponse = await fetch(API + "/logs");
+    if (!logsResponse.ok) throw new Error(`HTTP error! status: ${logsResponse.status}`);
+    const logsData = await logsResponse.json();
+    setLogs(logsData);
+    
+  } catch (error) {
+    console.error("Error fetching data:", error);
+    // Set fallback data to prevent UI breakage
+    setStats({
+      total: 0,
+      withEmail: 0,
+      emailRate: 0,
+      topCountries: []
+    });
+    setLogs([]);
+  }
+};
 
   useEffect(() => {
     fetchData();
