@@ -180,6 +180,72 @@ app.get("/logs", async (req, res) => {
   res.json(data);
 });
 
+/* ================= STATS ================= */
+
+app.get("/stats", async (req, res) => {
+  try {
+
+    // Total creators collected
+    const total = await Channel.countDocuments();
+
+    // Creators with email
+    const withEmail = await Channel.countDocuments({
+      email: { $exists: true, $ne: null, $ne: "" }
+    });
+
+    // Email success rate
+    const emailRate =
+      total > 0 ? ((withEmail / total) * 100).toFixed(1) : 0;
+
+    // Top countries
+    const topCountries = await Channel.aggregate([
+      {
+        $match: {
+          country: { $exists: true, $ne: null, $ne: "" }
+        }
+      },
+      {
+        $group: {
+          _id: "$country",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 5 }
+    ]);
+
+    res.json({
+      total,
+      withEmail,
+      emailRate,
+      topCountries
+    });
+
+  } catch (err) {
+
+    console.error("Stats error:", err);
+
+    res.status(500).json({
+      error: "Stats fetch failed"
+    });
+
+  }
+});
+
+app.get("/speed", async (req,res)=>{
+
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+  const count = await Channel.countDocuments({
+    createdAt: { $gte: oneHourAgo }
+  });
+
+  res.json({
+    perHour: count
+  });
+
+});
+
 app.listen(5000, () => {
   console.log("Server running on 5000");
 });
