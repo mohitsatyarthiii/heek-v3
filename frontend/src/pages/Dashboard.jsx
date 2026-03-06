@@ -14,85 +14,274 @@ import {
   BarChart3,
   Zap,
   RefreshCw,
-  ChevronRight
+  ChevronRight,
+  Pause,
+  Play,
+  Trash2,
+  Plus,
+  XCircle,
+  CheckCircle,
+  AlertCircle,
+  Loader2
 } from "lucide-react";
 
-const API = "https://heek-v3.onrender.com";
+const API = "http://localhost:5000";
+
+// Queue Card Component
+const QueueCard = ({ item, onPause, onResume, onDelete }) => {
+  const getStatusIcon = () => {
+    switch(item.status) {
+      case 'running':
+        return <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />;
+      case 'completed':
+        return <CheckCircle className="w-4 h-4 text-green-400" />;
+      case 'paused':
+        return <Pause className="w-4 h-4 text-yellow-400" />;
+      case 'failed':
+        return <AlertCircle className="w-4 h-4 text-red-400" />;
+      default:
+        return <Clock className="w-4 h-4 text-slate-400" />;
+    }
+  };
+
+  const getStatusColor = () => {
+    switch(item.status) {
+      case 'running': return 'border-blue-500/50 bg-blue-500/5';
+      case 'completed': return 'border-green-500/50 bg-green-500/5';
+      case 'paused': return 'border-yellow-500/50 bg-yellow-500/5';
+      case 'failed': return 'border-red-500/50 bg-red-500/5';
+      default: return 'border-slate-700 bg-slate-800/50';
+    }
+  };
+
+  const progress = item.progress?.collected ? 
+    Math.round((item.progress.collected / item.targetCount) * 100) : 0;
+
+  return (
+    <div className={`relative border rounded-xl p-4 transition-all duration-300 hover:scale-[1.02] ${getStatusColor()}`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {getStatusIcon()}
+          <h3 className="font-semibold text-white">{item.keyword}</h3>
+        </div>
+        <div className="flex items-center gap-1">
+          {item.status === 'running' && (
+            <button 
+              onClick={() => onPause(item._id)}
+              className="p-1.5 hover:bg-yellow-500/20 rounded-lg transition-colors"
+              title="Pause"
+            >
+              <Pause className="w-4 h-4 text-yellow-400" />
+            </button>
+          )}
+          {item.status === 'paused' && (
+            <button 
+              onClick={() => onResume(item._id)}
+              className="p-1.5 hover:bg-green-500/20 rounded-lg transition-colors"
+              title="Resume"
+            >
+              <Play className="w-4 h-4 text-green-400" />
+            </button>
+          )}
+          <button 
+            onClick={() => onDelete(item._id)}
+            className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4 text-red-400" />
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between text-slate-400">
+          <span>Progress:</span>
+          <span className="text-white font-medium">
+            {item.progress?.collected || 0}/{item.targetCount}
+          </span>
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <p className="text-slate-500">Country</p>
+            <p className="text-white font-medium">{item.country || 'IN'}</p>
+          </div>
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <p className="text-slate-500">Min Subs</p>
+            <p className="text-white font-medium">{(item.minSubs || 50000).toLocaleString()}</p>
+          </div>
+        </div>
+
+        {item.stats?.channelsFound > 0 && (
+          <div className="flex gap-3 mt-2 text-xs border-t border-slate-700 pt-2">
+            <span className="text-slate-400">
+              📊 {item.stats.channelsFound} channels
+            </span>
+            <span className="text-slate-400">
+              ✉️ {item.stats.emailsFound} emails
+            </span>
+          </div>
+        )}
+      </div>
+
+      {item.status === 'running' && (
+        <div className="absolute -top-1 -right-1">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function Dashboard() {
   const [stats, setStats] = useState({});
   const [logs, setLogs] = useState([]);
+  const [queue, setQueue] = useState([]);
+  const [keywordStats, setKeywordStats] = useState([]);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [scraperRunning, setScraperRunning] = useState(false);
 
   const [keywords, setKeywords] = useState("");
   const [country, setCountry] = useState("IN");
   const [minSubs, setMinSubs] = useState(50000);
   const [target, setTarget] = useState(500);
 
-  const startScraper = async () => {
-    setLoading(true);
+  // Fetch all data
+  const fetchAllData = async () => {
     try {
-      await fetch(API + "/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keywords: keywords.split(",").map(k => k.trim()),
-          country,
-          minSubs: Number(minSubs),
-          target: Number(target)
-        })
-      });
+      // Fetch stats
+      const statsRes = await fetch(API + "/stats");
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData);
+      }
+
+      // Fetch logs
+      const logsRes = await fetch(API + "/logs");
+      if (logsRes.ok) {
+        const logsData = await logsRes.json();
+        setLogs(logsData);
+      }
+
+      // Fetch queue
+      const queueRes = await fetch(API + "/queue");
+      if (queueRes.ok) {
+        const queueData = await queueRes.json();
+        setQueue(queueData);
+      }
+
+      // Fetch keyword stats
+      const keywordRes = await fetch(API + "/keyword-stats");
+      if (keywordRes.ok) {
+        const keywordData = await keywordRes.json();
+        setKeywordStats(keywordData.keywordStats || []);
+      }
+
+      // Fetch scraper status
+      const statusRes = await fetch(API + "/scraper/status");
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setScraperRunning(statusData.isRunning);
+      }
+
     } catch (error) {
-      console.error("Error starting scraper:", error);
-    } finally {
-      setLoading(false);
+      console.error("Error fetching data:", error);
     }
   };
 
-  const fetchData = async () => {
+  // Start scraper
+  // In startScraper function, change this:
+const startScraper = async () => {
+  setLoading(true);
   try {
-    const response = await fetch(API + "/stats");
+    // Split keywords and create array
+    const keywordArray = keywords.split(',').map(k => k.trim()).filter(k => k);
     
-    // Check if response is OK
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    // Check content type
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-      const text = await response.text();
-      console.error("Received non-JSON response:", text.substring(0, 200));
-      throw new Error("Received non-JSON response from server");
-    }
-    
-    const data = await response.json();
-    setStats(data);
-    
-    // Similarly for logs
-    const logsResponse = await fetch(API + "/logs");
-    if (!logsResponse.ok) throw new Error(`HTTP error! status: ${logsResponse.status}`);
-    const logsData = await logsResponse.json();
-    setLogs(logsData);
-    
-  } catch (error) {
-    console.error("Error fetching data:", error);
-    // Set fallback data to prevent UI breakage
-    setStats({
-      total: 0,
-      withEmail: 0,
-      emailRate: 0,
-      topCountries: []
+    const response = await fetch(API + "/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        keywords: keywordArray, // Send as array, not string
+        country,
+        minSubs: Number(minSubs),
+        target: Number(target)
+      })
     });
-    setLogs([]);
+    
+    if (response.ok) {
+      setKeywords(""); // Clear input after successful add
+      fetchAllData();
+    }
+  } catch (error) {
+    console.error("Error starting scraper:", error);
+  } finally {
+    setLoading(false);
   }
 };
 
+  // Stop scraper
+  const stopScraper = async () => {
+    try {
+      await fetch(API + "/scraper/stop", { method: "POST" });
+      fetchAllData();
+    } catch (error) {
+      console.error("Error stopping scraper:", error);
+    }
+  };
+
+  // Queue controls
+  const pauseQueueItem = async (id) => {
+    try {
+      await fetch(API + `/queue/pause/${id}`, { method: "POST" });
+      fetchAllData();
+    } catch (error) {
+      console.error("Error pausing queue item:", error);
+    }
+  };
+
+  const resumeQueueItem = async (id) => {
+    try {
+      await fetch(API + `/queue/resume/${id}`, { method: "POST" });
+      fetchAllData();
+    } catch (error) {
+      console.error("Error resuming queue item:", error);
+    }
+  };
+
+  const deleteQueueItem = async (id) => {
+    try {
+      await fetch(API + `/queue/${id}`, { method: "DELETE" });
+      fetchAllData();
+    } catch (error) {
+      console.error("Error deleting queue item:", error);
+    }
+  };
+
+  const clearCompleted = async () => {
+    try {
+      await fetch(API + "/queue/clear", { method: "POST" });
+      fetchAllData();
+    } catch (error) {
+      console.error("Error clearing queue:", error);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
+    fetchAllData();
     if (autoRefresh) {
-      const i = setInterval(fetchData, 3000);
+      const i = setInterval(fetchAllData, 3000);
       return () => clearInterval(i);
     }
   }, [autoRefresh]);
@@ -102,11 +291,16 @@ export default function Dashboard() {
   const topCountry = stats?.topCountries?.[0]?._id || "N/A";
   const topCountryCount = stats?.topCountries?.[0]?.count || 0;
 
+  // Queue stats
+  const activeJobs = queue.filter(j => j.status === 'running').length;
+  const pendingJobs = queue.filter(j => j.status === 'pending').length;
+  const completedJobs = queue.filter(j => j.status === 'completed').length;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header with animated gradient */}
+        {/* Header */}
         <div className="relative mb-8">
           <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl blur-xl" />
           <div className="relative flex items-center justify-between">
@@ -122,27 +316,39 @@ export default function Dashboard() {
               <p className="text-slate-400">Monitor and manage your YouTube creator scraper in real-time</p>
             </div>
             
-            {/* Auto-refresh toggle */}
-            <button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
-                autoRefresh 
-                  ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' 
-                  : 'bg-slate-800/50 border-slate-700 text-slate-400'
-              }`}
-            >
-              <RefreshCw className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} />
-              <span className="text-sm font-medium">Auto-refresh</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Scraper Status */}
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+                scraperRunning 
+                  ? 'border-green-500/50 bg-green-500/10' 
+                  : 'border-slate-700 bg-slate-800/50'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${scraperRunning ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`} />
+                <span className="text-sm font-medium text-slate-300">
+                  {scraperRunning ? 'Scraper Running' : 'Scraper Idle'}
+                </span>
+              </div>
+
+              {/* Auto-refresh toggle */}
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                  autoRefresh 
+                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' 
+                    : 'bg-slate-800/50 border-slate-700 text-slate-400'
+                }`}
+              >
+                <RefreshCw className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} />
+                <span className="text-sm font-medium">Auto-refresh</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Stats Grid with animated cards */}
+        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          
           {/* Total Collected Card */}
           <div className="group relative bg-gradient-to-br from-slate-900 to-slate-800/50 border border-slate-800 rounded-2xl p-6 hover:border-cyan-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-500/5">
-            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/0 to-cyan-500/0 group-hover:from-cyan-500/5 group-hover:via-cyan-500/5 group-hover:to-transparent rounded-2xl transition-all duration-500" />
             <div className="relative flex items-start justify-between">
               <div>
                 <p className="text-slate-400 text-sm mb-1 flex items-center gap-2">
@@ -157,9 +363,6 @@ export default function Dashboard() {
               <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Users className="w-6 h-6 text-cyan-400" />
               </div>
-            </div>
-            <div className="mt-4 h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full w-3/4 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full" />
             </div>
           </div>
 
@@ -232,21 +435,20 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-white flex items-center gap-2">
                 <PlayCircle className="w-5 h-5 text-cyan-400" />
-                Scraper Configuration
+                Add Keywords to Queue
               </h2>
               <div className="flex items-center gap-2 text-sm text-slate-400">
                 <Filter className="w-4 h-4" />
-                <span>Configure parameters below</span>
+                <span>Configure and add keywords</span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-              
               {/* Keywords Input */}
               <div className="space-y-2">
                 <label className="text-sm text-slate-400 flex items-center gap-2">
                   <span className="w-1 h-1 bg-cyan-400 rounded-full" />
-                  Keywords
+                  Keywords (comma separated)
                 </label>
                 <input
                   className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-colors"
@@ -288,7 +490,7 @@ export default function Dashboard() {
               <div className="space-y-2">
                 <label className="text-sm text-slate-400 flex items-center gap-2">
                   <span className="w-1 h-1 bg-orange-400 rounded-full" />
-                  Target Count
+                  Target per Keyword
                 </label>
                 <input
                   className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 transition-colors"
@@ -298,98 +500,206 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Start Button */}
+              {/* Action Buttons */}
               <div className="space-y-2">
-                <label className="text-sm text-slate-400 opacity-0">Action</label>
-                <button
-                  onClick={startScraper}
-                  disabled={loading}
-                  className="w-full h-[50px] bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Starting...
-                    </>
+                <label className="text-sm text-slate-400 opacity-0">Actions</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={startScraper}
+                    disabled={loading || !keywords}
+                    className="flex-1 h-[50px] bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed rounded-xl font-semibold text-white flex items-center justify-center gap-2 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    {loading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-5 h-5" />
+                        Add to Queue
+                      </>
+                    )}
+                  </button>
+                  
+                  {scraperRunning ? (
+                    <button
+                      onClick={stopScraper}
+                      className="h-[50px] px-4 bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 rounded-xl text-red-400 flex items-center justify-center transition-all duration-300"
+                      title="Stop Scraper"
+                    >
+                      <XCircle className="w-5 h-5" />
+                    </button>
                   ) : (
-                    <>
-                      <PlayCircle className="w-5 h-5" />
-                      Start Scraper
-                    </>
+                    <button
+                      onClick={() => fetch(API + "/scraper/start", { method: "POST" })}
+                      className="h-[50px] px-4 bg-green-600/20 hover:bg-green-600/30 border border-green-500/50 rounded-xl text-green-400 flex items-center justify-center transition-all duration-300"
+                      title="Start Scraper"
+                    >
+                      <Play className="w-5 h-5" />
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
             </div>
+
+            {/* Queue Summary */}
+            {queue.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-800 flex items-center gap-4 text-sm">
+                <span className="text-slate-400">Queue Summary:</span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                  <span className="text-slate-300">{activeJobs} Running</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                  <span className="text-slate-300">{pendingJobs} Pending</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                  <span className="text-slate-300">{completedJobs} Completed</span>
+                </span>
+                {completedJobs > 0 && (
+                  <button
+                    onClick={clearCompleted}
+                    className="ml-auto text-xs text-slate-500 hover:text-slate-400 transition-colors"
+                  >
+                    Clear Completed
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Live Logs Section */}
-        <div className="relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 to-emerald-500/5 rounded-2xl" />
-          <div className="relative bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-6">
-            
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
+        {/* Main Content - Queue Cards and Logs Side by Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* Queue Cards Section */}
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-purple-500/5 rounded-2xl" />
+            <div className="relative bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-6">
+              
+              <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-green-400" />
-                  Live Activity Feed
+                  <Target className="w-5 h-5 text-blue-400" />
+                  Queue Manager
                 </h2>
-                <span className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/30 rounded-full">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-xs text-green-400">LIVE</span>
+                <span className="text-sm text-slate-400">
+                  {queue.length} items
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <Clock className="w-4 h-4" />
-                <span>Last updated: {new Date().toLocaleTimeString()}</span>
-              </div>
-            </div>
 
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 h-[400px] overflow-y-auto custom-scrollbar">
-              {logs.length > 0 ? (
-                <div className="space-y-3">
-                  {logs.map((log, index) => (
-                    <div
-                      key={log._id || index}
-                      className="group relative bg-slate-900/50 border border-slate-800 rounded-lg p-3 hover:border-green-500/30 transition-all duration-300 hover:translate-x-1"
-                    >
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-green-500 to-emerald-500 rounded-l-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <div className="flex items-start gap-3 ml-2">
-                        <span className="text-xs font-mono text-green-400 min-w-[70px]">
-                          [{new Date(log.createdAt).toLocaleTimeString()}]
-                        </span>
-                        <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-green-400 transition-colors" />
-                        <span className="text-sm text-slate-300 flex-1">
-                          {log.message}
+              {/* Queue Cards Grid */}
+              <div className="h-[500px] overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                {queue.length > 0 ? (
+                  queue.map((item) => (
+                    <QueueCard
+                      key={item._id}
+                      item={item}
+                      onPause={pauseQueueItem}
+                      onResume={resumeQueueItem}
+                      onDelete={deleteQueueItem}
+                    />
+                  ))
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-600">
+                    <Target className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-lg font-medium">Queue is empty</p>
+                    <p className="text-sm">Add keywords to start scraping</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Keyword Stats Summary */}
+              {keywordStats.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <h3 className="text-sm font-medium text-slate-400 mb-3">Keyword Performance</h3>
+                  <div className="space-y-2">
+                    {keywordStats.slice(0, 3).map((stat) => (
+                      <div key={stat._id} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-300">{stat._id}</span>
+                        <span className="text-slate-400">
+                          {stat.channelsFound} channels • {stat.emailsFound} emails
                         </span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600">
-                  <Activity className="w-12 h-12 mb-3 opacity-50" />
-                  <p className="text-lg font-medium">No logs available</p>
-                  <p className="text-sm">Start the scraper to see live activity</p>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Logs Footer */}
-            <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1">
-                  <span className="w-1 h-1 bg-green-500 rounded-full" />
-                  {logs.length} events
-                </span>
-                <span className="flex items-center gap-1">
-                  <BarChart3 className="w-3 h-3" />
-                  Real-time updates
-                </span>
+          {/* Live Logs Section */}
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 to-emerald-500/5 rounded-2xl" />
+            <div className="relative bg-slate-900/90 backdrop-blur-sm border border-slate-800 rounded-2xl p-6">
+              
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-green-400" />
+                    Live Activity Feed
+                  </h2>
+                  <span className="flex items-center gap-1.5 px-2 py-1 bg-green-500/10 border border-green-500/30 rounded-full">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                    <span className="text-xs text-green-400">LIVE</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Clock className="w-4 h-4" />
+                  <span>Last updated: {new Date().toLocaleTimeString()}</span>
+                </div>
               </div>
-              <button className="hover:text-cyan-400 transition-colors">
-                View all logs →
-              </button>
+
+              <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 h-[500px] overflow-y-auto custom-scrollbar">
+                {logs.length > 0 ? (
+                  <div className="space-y-3">
+                    {logs.map((log, index) => (
+                      <div
+                        key={log._id || index}
+                        className="group relative bg-slate-900/50 border border-slate-800 rounded-lg p-3 hover:border-green-500/30 transition-all duration-300 hover:translate-x-1"
+                      >
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-green-500 to-emerald-500 rounded-l-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="flex items-start gap-3 ml-2">
+                          <span className="text-xs font-mono text-green-400 min-w-[70px]">
+                            [{new Date(log.createdAt).toLocaleTimeString()}]
+                          </span>
+                          <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-green-400 transition-colors" />
+                          <span className={`text-sm flex-1 ${
+                            log.type === 'error' ? 'text-red-400' :
+                            log.type === 'success' ? 'text-green-400' :
+                            log.type === 'warning' ? 'text-yellow-400' :
+                            'text-slate-300'
+                          }`}>
+                            {log.message}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-600">
+                    <Activity className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-lg font-medium">No logs available</p>
+                    <p className="text-sm">Start the scraper to see live activity</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Logs Footer */}
+              <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center gap-4">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1 h-1 bg-green-500 rounded-full" />
+                    {logs.length} events
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <BarChart3 className="w-3 h-3" />
+                    Real-time updates
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

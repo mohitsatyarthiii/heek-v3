@@ -10,7 +10,7 @@ import {
   Youtube 
 } from "lucide-react";
 
-const API = "https://heek-v3.onrender.com";
+const API = "http://localhost:5000";
 
 export default function Creators() {
   const [channels, setChannels] = useState([]);
