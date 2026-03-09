@@ -8,7 +8,7 @@ dotenv.config();
 
 /* ================= CONFIG ================= */
 
-let COUNTRY = "IN";
+let COUNTRY = "";
 let MIN_SUBS = 0;
 let TARGET_PER_KEYWORD = 0;
 let INTERVAL = 1000 * 60 * 30;
