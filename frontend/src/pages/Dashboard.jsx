@@ -116,7 +116,7 @@ const QueueCard = ({ item, onPause, onResume, onDelete }) => {
           </div>
           <div className="bg-slate-800/50 rounded-lg p-2">
             <p className="text-slate-500">Min Subs</p>
-            <p className="text-white font-medium">{(item.minSubs || 50000).toLocaleString()}</p>
+            <p className="text-white font-medium">{(item.minSubs || 0).toLocaleString()}</p>
           </div>
         </div>
 
@@ -155,8 +155,8 @@ export default function Dashboard() {
 
   const [keywords, setKeywords] = useState("");
   const [country, setCountry] = useState("IN");
-  const [minSubs, setMinSubs] = useState(50000);
-  const [target, setTarget] = useState(500);
+  const [minSubs, setMinSubs] = useState(0);
+  const [target, setTarget] = useState(1000);
 
   // Fetch all data
   const fetchAllData = async () => {
@@ -297,12 +297,12 @@ const startScraper = async () => {
   const completedJobs = queue.filter(j => j.status === 'completed').length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-8">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-950 p-8">
       <div className="max-w-7xl mx-auto">
         
         {/* Header */}
         <div className="relative mb-8">
-          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl blur-xl" />
+          <div className="absolute inset-0 bg-linear-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl blur-xl" />
           <div className="relative flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold text-white mb-2 flex items-center gap-3">

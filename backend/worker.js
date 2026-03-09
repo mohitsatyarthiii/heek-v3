@@ -9,8 +9,8 @@ dotenv.config();
 /* ================= CONFIG ================= */
 
 let COUNTRY = "IN";
-let MIN_SUBS = 50000;
-let TARGET_PER_KEYWORD = 500;
+let MIN_SUBS = 0;
+let TARGET_PER_KEYWORD = 0;
 let INTERVAL = 1000 * 60 * 30;
 let isRunning = false;
 
@@ -24,7 +24,10 @@ const API_KEYS = [
   process.env.YOUTUBE_API_KEY_6,
   process.env.YOUTUBE_API_KEY_7,
   process.env.YOUTUBE_API_KEY_8,
-  process.env.YOUTUBE_API_KEY_9
+  process.env.YOUTUBE_API_KEY_9,
+  process.env.YOUTUBE_API_KEY_10,
+  process.env.YOUTUBE_API_KEY_11,
+  process.env.YOUTUBE_API_KEY_12  
 ].filter(key => key);
 
 let currentKeyIndex = 0;
@@ -298,8 +301,8 @@ async function makeRequest(requestFn, retryCount = 0) {
 
 async function fetchChannels(queueItem) {
   const { keyword, country, minSubs, targetCount, _id } = queueItem;
-  
-  await addLog(`🔍 Searching: ${keyword}`, 'info', keyword);
+
+  await addLog(`🔍 Searching: ${keyword}`, "info", keyword);
 
   let nextPageToken = null;
   let collected = 0;
@@ -307,18 +310,21 @@ async function fetchChannels(queueItem) {
   let emailsFound = 0;
   let consecutiveErrors = 0;
 
-  while (collected < targetCount) {
+  let pageCount = 0;
+  const MAX_PAGES =1000; // prevents infinite loops
+
+  while (collected < targetCount && pageCount < MAX_PAGES) {
     try {
-      // Check if paused
+
       const currentItem = await Queue.findById(_id);
-      if (currentItem.status === 'paused') {
-        await addLog(`⏸️ Paused: ${keyword}`, 'warning', keyword);
+      if (!currentItem || currentItem.status === "paused") {
+        await addLog(`⏸️ Paused: ${keyword}`, "warning", keyword);
         break;
       }
 
       const apiKey = getNextApiKey();
       if (!apiKey) {
-        await addLog("❌ No API keys available. Stopping scraper.", 'error', keyword);
+        await addLog("❌ No API keys available", "error", keyword);
         break;
       }
 
@@ -331,11 +337,11 @@ async function fetchChannels(queueItem) {
               q: keyword,
               type: "channel",
               part: "snippet",
-              maxResults: 50,
+              maxResults: 5000,
               regionCode: country,
-              pageToken: nextPageToken,
+              pageToken: nextPageToken
             },
-            timeout: 10000
+            timeout: 30000
           }
         );
       });
@@ -350,83 +356,101 @@ async function fetchChannels(queueItem) {
             params: {
               key: apiKey,
               id: ids.join(","),
-              part: "snippet,statistics",
+              part: "snippet,statistics"
             },
-            timeout: 10000
+            timeout: 30000
           }
         );
       });
 
       for (const ch of details.data.items) {
+
         totalChannelsFound++;
+
         const subs = parseInt(ch.statistics.subscriberCount || 0);
         if (subs < minSubs) continue;
 
         const email = extractEmail(ch.snippet.description);
+
         if (!email) continue;
+
+        const exists = await Channel.findOne({ channelId: ch.id });
+        if (exists) continue;
 
         emailsFound++;
 
-        await Channel.updateOne(
-          { channelId: ch.id },
-          {
-            $set: {
-              channelId: ch.id,
-              keyword,
-              title: ch.snippet.title,
-              subscribers: subs,
-              views: parseInt(ch.statistics.viewCount || 0),
-              videos: parseInt(ch.statistics.videoCount || 0),
-              country: ch.snippet.country,
-              email,
-            },
-          },
-          { upsert: true }
-        );
+        await Channel.create({
+          channelId: ch.id,
+          keyword,
+          title: ch.snippet.title,
+          subscribers: subs,
+          views: parseInt(ch.statistics.viewCount || 0),
+          videos: parseInt(ch.statistics.videoCount || 0),
+          country: ch.snippet.country,
+          email
+        });
 
         collected++;
-        await addLog(`✅ Saved: ${ch.snippet.title} (${subs.toLocaleString()} subs)`, 'success', keyword);
-        
-        // Update progress every 10 items
+
+        await addLog(
+          `✅ Saved: ${ch.snippet.title} (${subs.toLocaleString()} subs)`,
+          "success",
+          keyword
+        );
+
         if (collected % 10 === 0) {
           await updateQueueProgress(_id, collected, totalChannelsFound, emailsFound);
         }
-
-        consecutiveErrors = 0;
 
         if (collected >= targetCount) break;
       }
 
       nextPageToken = search.data.nextPageToken;
+      pageCount++;
+
       if (!nextPageToken) break;
-      
+
     } catch (error) {
+
       consecutiveErrors++;
-      
+
       if (error.message === "All API keys have exceeded quota") {
-        await addLog("❌ All API keys quota exceeded. Stopping scraper until tomorrow.", 'error', keyword);
+        await addLog("❌ All API keys quota exceeded", "error", keyword);
         await failQueueItem(_id, "All keys quota exceeded");
-        isRunning = false;
         break;
       }
-      
-      await addLog(`❌ Error: ${error.message}`, 'error', keyword);
-      
+
+      await addLog(`❌ Error: ${error.message}`, "error", keyword);
+
       if (consecutiveErrors > 5) {
-        await addLog("❌ Too many consecutive errors. Stopping.", 'error', keyword);
-        await failQueueItem(_id, "Too many consecutive errors");
+        await addLog("❌ Too many errors. Stopping.", "error", keyword);
+        await failQueueItem(_id, "Too many errors");
         break;
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 
   if (collected >= targetCount) {
+
     await completeQueueItem(_id, collected);
-    await addLog(`📊 Completed ${keyword} → ${collected}/${targetCount} collected (${totalChannelsFound} channels, ${emailsFound} emails)`, 'success', keyword);
-  } else if (collected > 0) {
+
+    await addLog(
+      `🎯 Completed ${keyword} → ${collected}/${targetCount} emails`,
+      "success",
+      keyword
+    );
+
+  } else {
+
     await updateQueueProgress(_id, collected, totalChannelsFound, emailsFound);
+
+    await addLog(
+      `⚠ Partial result: ${collected}/${targetCount}`,
+      "warning",
+      keyword
+    );
   }
 
   return collected;
@@ -721,6 +745,8 @@ app.get("/speed", async (req,res)=>{
   });
   res.json({ perHour: count });
 });
+
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
