@@ -25,7 +25,7 @@ import {
   Loader2
 } from "lucide-react";
 
-const API = "http://localhost:5000";
+const API = "http://31.97.228.243:5000";
 
 // Queue Card Component
 const QueueCard = ({ item, onPause, onResume, onDelete }) => {
