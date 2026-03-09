@@ -10,7 +10,7 @@ import {
   Youtube 
 } from "lucide-react";
 
-const API = "http://31.97.228.243:5000";
+const API = "https://api.heekentertainment.com";
 
 export default function Creators() {
   const [channels, setChannels] = useState([]);

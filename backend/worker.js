@@ -498,7 +498,9 @@ async function runScraper() {
 
 const app = express();
 const allowedOrigins = [
-  
+  "https://crawler.heekentertainment.com",
+  "https://heek-e.onrender.com",
+
   "http://localhost:5173",
 ];
 
